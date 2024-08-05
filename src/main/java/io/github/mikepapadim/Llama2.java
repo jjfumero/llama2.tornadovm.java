@@ -10,6 +10,7 @@ import java.util.Scanner;
 import uk.ac.manchester.tornado.api.TaskGraph;
 import uk.ac.manchester.tornado.api.TornadoExecutionPlan;
 import uk.ac.manchester.tornado.api.enums.DataTransferMode;
+import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 
 /**
  * This class provides an implementation of the Llama-2 neural network model in
@@ -26,7 +27,7 @@ class Llama2 {
      * Vector API is enabled, but this can be configured through the respective
      * system properties.
      */
-    static final boolean USE_VECTOR_API = getBooleanProperty("VectorAPI", true);
+    static final boolean USE_VECTOR_API = getBooleanProperty("VectorAPI", false);
 
     private static boolean getBooleanProperty(String propertyName, boolean defaultValue) {
         return "true".equalsIgnoreCase(System.getProperty("llama2." + propertyName, String.valueOf(defaultValue)));
@@ -44,8 +45,8 @@ class Llama2 {
      */
     private static TornadoExecutionPlan createTornadoExecutionPlan(Transformer transformer) {
         Config p = transformer.config;
-        Weights w = transformer.weights;
-        RunState s = transformer.state;
+        WeightsFP32 w = (WeightsFP32) transformer.weights;
+        RunStateFloat s = (RunStateFloat) transformer.state;
         int dim = p.dim;
         TaskGraph taskGraph;
 
@@ -479,8 +480,10 @@ class Llama2 {
             System.err.println("something is wrong, expected at least 1 prompt token");
             System.exit(1);
         }
-
-        TornadoExecutionPlan tornadoExecutionPlan = createTornadoExecutionPlan(transformer);
+        TornadoExecutionPlan tornadoExecutionPlan;
+        if (!Transformer.USE_LEVEL_ZERO) {
+             tornadoExecutionPlan = createTornadoExecutionPlan(transformer);
+        }
 
         long start = 0; // used to time our code, only initialized after first iteration
         int next; // will store the next token in the sequence
@@ -488,7 +491,12 @@ class Llama2 {
         int pos = 0; // position in the sequence
         while (pos < steps) {
             // forward the transformer to get logits for the next token
-            float[] logits = InferenceEngine.forward(transformer, token, pos, tornadoExecutionPlan);
+            float[] logits;
+            if (Transformer.USE_LEVEL_ZERO) {
+                logits = InferenceEngine.forwardWithLevelZero(transformer, token, pos);
+            } else {
+                logits = InferenceEngine.forwardWithTornadoVM(transformer, token, pos, tornadoExecutionPlan);
+            }
 
             // Advance the state machine
             next = (pos < num_prompt_tokens - 1) ? prompt_tokens[pos + 1] : sample(sampler, logits);
@@ -625,7 +633,7 @@ class Llama2 {
             }
 
             // forward the transformer to get logits for the next token
-            float[] logits = InferenceEngine.forward(transformer, token, pos, null);
+            float[] logits = InferenceEngine.forwardWithTornadoVM(transformer, token, pos, null);
             next = sample(sampler, logits);
             pos++;
 
@@ -678,6 +686,13 @@ class Llama2 {
         } else {
             error_usage();
         }
+
+        if (Transformer.USE_LEVEL_ZERO) {
+            System.out.println("USING LEVEL ZERO");
+            if (Transformer.USE_GPU)
+                System.out.println("USING iGPU");
+        }
+
         for (int i = 1; i < args.length; i += 2) {
             // do some basic validation
             if (i + 1 >= args.length) {

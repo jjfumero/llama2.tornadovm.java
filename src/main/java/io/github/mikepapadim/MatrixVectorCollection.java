@@ -5,13 +5,16 @@ import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.util.stream.IntStream;
 
+import io.github.mikepapadim.gpu.shared.ComputeBundle;
+import io.github.mikepapadim.gpu.shared.MemObject;
 import jdk.incubator.vector.FloatVector;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
 import uk.ac.manchester.tornado.api.annotations.Parallel;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
-import uk.ac.manchester.tornado.api.types.tensors.Tensor;
 import uk.ac.manchester.tornado.api.types.tensors.TensorFP32;
+import uk.ac.manchester.tornado.drivers.spirv.levelzero.LevelZeroKernel;
+import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeGroupDispatch;
 
 /**
  * This class contains a set of Matrix and Vector multiplication methods
@@ -136,6 +139,37 @@ public class MatrixVectorCollection {
             }
             xout[i] = val;
         });
+    }
+
+    static void matmul(MemObject xout, MemObject x, MemObject w, int n, int d) {
+        IntStream.range(0, d).parallel().forEach(i -> {
+            float val = 0f;
+            int j = 0;
+            // Graal's auto-vectorization.
+            int upperBound = n & ~3;
+            float[] sum = new float[4];
+            for (; j < upperBound; j += sum.length) {
+                sum[0] += w.get(i * n + j + 0) * x.get(j + 0);
+                sum[1] += w.get(i * n + j + 1) * x.get(j + 1);
+                sum[2] += w.get(i * n + j + 2) * x.get(j + 2);
+                sum[3] += w.get(i * n + j + 3) * x.get(j + 3);
+            }
+            val += sum[0] + sum[1] + sum[2] + sum[3];
+
+            for (; j < n; j++) {
+                val += w.get(i * n + j) * x.get(j);
+            }
+            xout.set(i, val);
+        });
+    }
+
+    static void matMulOnGPU(LevelZeroKernel kernel, ComputeBundle computeBundle, MemObject xout, MemObject x, MemObject w, int n, int numThreads) {
+        if (computeBundle.isThreadConfigurationDone()) {
+            computeBundle.dispatchMatMul(kernel, computeBundle.getMatMulDispatcher());
+        } else {
+            ZeGroupDispatch dispatcher = computeBundle.runMatMul(kernel, xout.buffer(), x.buffer(), w.buffer(), n, numThreads);
+            computeBundle.setDispatchMatMul(dispatcher);
+        }
     }
 
     /**

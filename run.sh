@@ -1,5 +1,7 @@
 #!/bin/bash
 
+./createSPIRVCode.sh
+
 # Print usage information
 usage() {
   echo "Usage:"
