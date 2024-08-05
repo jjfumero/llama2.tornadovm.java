@@ -1,5 +1,7 @@
 package io.github.mikepapadim;
 
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.util.Arrays;
@@ -8,6 +10,7 @@ import java.util.stream.IntStream;
 import io.github.mikepapadim.gpu.shared.MemObject;
 import uk.ac.manchester.tornado.api.TornadoExecutionPlan;
 import uk.ac.manchester.tornado.api.common.TornadoDevice;
+import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.LevelZeroKernel;
 
 /**
@@ -28,7 +31,7 @@ public class InferenceEngine {
      *            The list of TornadoExecutionPlan objects for execution.
      * @return The output logits produced by the Transformer model.
      */
-    static float[] forwardWithTornadoVM(Transformer transformer, int token, int pos, TornadoExecutionPlan executionPlan) {
+    static MemorySegment forwardWithTornadoVM(Transformer transformer, int token, int pos, TornadoExecutionPlan executionPlan) {
         Config p = transformer.config;
         WeightsFP32 w = (WeightsFP32) transformer.weights;
         RunStateFloat s = (RunStateFloat) transformer.state;
@@ -39,7 +42,12 @@ public class InferenceEngine {
         int kv_mul = p.n_heads / p.n_kv_heads; // integer multiplier of the kv sharing in multiquery
 
         // copy the token embedding into x
-        w.token_embedding_table.get(token * dim, s.x, 0, dim);
+        // w.token_embedding_table.get(token * dim, s.x, 0, dim);
+        FloatBuffer auxW = w.token_embedding_table;
+        int kk = 0;
+        for (int i = token * dim; i < (token * dim) + dim; i++) {
+            s.x.set(kk++, auxW.get(i));
+        }
 
         // forward all the layers
         for (int l = 0; l < p.n_layers; l++) {
@@ -61,18 +69,21 @@ public class InferenceEngine {
                 float fci = (float) Math.sin(val);
                 int rotn = i < kv_dim ? 2 : 1; // how many vectors? 2 = q & k, 1 = q only
                 for (int v = 0; v < rotn; v++) {
-                    float[] vec = v == 0 ? s.q : s.k; // the vector to rotate (query or key)
-                    float v0 = vec[i];
-                    float v1 = vec[i + 1];
-                    vec[i] = v0 * fcr - v1 * fci;
-                    vec[i + 1] = v0 * fci + v1 * fcr;
+                    FloatArray vec = v == 0 ? s.q : s.k; // the vector to rotate (query or key)
+                    float v0 = vec.get(i);
+                    float v1 = vec.get(i + 1);
+                    vec.set(i, (v0 * fcr - v1 * fci));
+                    vec.set(i + 1, (v0 * fci + v1 * fcr));
                 }
             }
 
             // save key,value at this time step (pos) to our kv cache
             // int loff = l * p.seq_len * kv_dim; // kv cache layer offset for convenience
-            System.arraycopy(s.k, 0, s.key_cache[l], pos * kv_dim, kv_dim);
-            System.arraycopy(s.v, 0, s.value_cache[l], pos * kv_dim, kv_dim);
+            //System.arraycopy(s.k, 0, s.key_cache[l], pos * kv_dim, kv_dim);
+            //System.arraycopy(s.v, 0, s.value_cache[l], pos * kv_dim, kv_dim);
+            copyMemObjects(s.k, 0, s.key_cache[l], pos * kv_dim, kv_dim);
+            copyMemObjects(s.v, 0, s.value_cache[l], pos * kv_dim, kv_dim);
+
 
             final int curLayer = l;
 
@@ -94,7 +105,8 @@ public class InferenceEngine {
                     // calculate the attention score as the dot product of q and k
                     float score = 0.0f;
                     for (int i = 0; i < head_size; i++) {
-                        score += s.q[qOffset + i] * s.key_cache[curLayer][keyCacheOffset + i];
+                        //score += s.q[qOffset + i] * s.key_cache[curLayer][keyCacheOffset + i];
+                        score += s.q.get(qOffset + i) * s.key_cache[curLayer][keyCacheOffset + i];
                     }
                     score /= (float) Math.sqrt(head_size);
                     // save the score to the attention buffer
@@ -108,7 +120,8 @@ public class InferenceEngine {
                 // float* xb = s.xb + h * head_size;
                 int xbOffset = h * head_size;
                 // memset(xb, 0, head_size * sizeof(float));
-                Arrays.fill(s.xb, xbOffset, xbOffset + head_size, 0f);
+                //Arrays.fill(s.xb, xbOffset, xbOffset + head_size, 0f);
+                segmentFill(s.xb, xbOffset, xbOffset + head_size, 0f);
 
                 for (int t = 0; t <= pos; t++) {
                     // get the value vector for this head and at this timestep
@@ -118,7 +131,8 @@ public class InferenceEngine {
                     float a = s.att[attOffset + t];
                     // accumulate the weighted value inconfigto xb
                     for (int i = 0; i < head_size; i++) {
-                        s.xb[xbOffset + i] += a * s.value_cache[curLayer][vOffset + i];
+                        float acc = s.xb.get(xbOffset + i);
+                        s.xb.set(xbOffset + i, (acc + (a * s.value_cache[curLayer][vOffset + i])));
                     }
                 }
             });
@@ -155,10 +169,17 @@ public class InferenceEngine {
                 .withDevice(device) //
                 .execute(); //
 
-        return s.logits;
+        return s.logits.getSegment();
     }
 
     private static void copyMemObjects(MemObject source, final int index, float[] dest, final int destIndex, final int length) {
+        int j = destIndex;
+        for (int i = index; i < length; i++) {
+            dest[j++] = source.get(i);
+        }
+    }
+
+    private static void copyMemObjects(FloatArray source, final int index, float[] dest, final int destIndex, final int length) {
         int j = destIndex;
         for (int i = index; i < length; i++) {
             dest[j++] = source.get(i);
@@ -170,7 +191,12 @@ public class InferenceEngine {
             memObject.set(i, value);
     }
 
-    static float[] forwardWithLevelZero(Transformer transformer, int token, int pos) {
+    private static void segmentFill(FloatArray memObject, int fromIndex, int toIndex, float value) {
+        for (int i = fromIndex; i < toIndex; i++)
+            memObject.set(i, value);
+    }
+
+    static MemorySegment forwardWithLevelZero(Transformer transformer, int token, int pos) {
         Config p = transformer.config;
         WeightsShared w = (WeightsShared) transformer.weights;
         RunStateSharedMem s = (RunStateSharedMem) transformer.state;
@@ -314,10 +340,16 @@ public class InferenceEngine {
             MatrixVectorCollection.matmul(s.logits, s.x, w.weightTensor, dim, transformer.config.vocab_size);
         }
 
-        return marshall(s.logits, transformer.config.vocab_size);
+        return s.logits.segment();
     }
 
     private static float[] marshall(MemObject o, int size) {
+        float[] output = new float[size];
+        IntStream.range(0, size).forEach(i -> output[i] = o.get(i));
+        return output;
+    }
+
+    private static float[] marshall(FloatArray o, int size) {
         float[] output = new float[size];
         IntStream.range(0, size).forEach(i -> output[i] = o.get(i));
         return output;
@@ -341,6 +373,16 @@ public class InferenceEngine {
             val *= (1.0f / (1.0f + Math.exp(-val)));
             // elementwise multiply with w3(x)
             out[i] = val * hb2[i];
+        }
+    }
+
+    private static void fusedSiluEwiseMul(int hidden_dim, FloatArray out, FloatArray hb2) {
+        for (int i = 0; i < hidden_dim; i++) {
+            float val = out.get(i);
+            // silu(x)=x*σ(x), where σ(x) is the logistic sigmoid
+            val *= (1.0f / (1.0f + Math.exp(-val)));
+            // elementwise multiply with w3(x)
+            out.set(i, (val * hb2.get(i)));
         }
     }
 
@@ -371,6 +413,12 @@ public class InferenceEngine {
         }
     }
 
+    private static void residualConnection(FloatArray s, FloatArray xb2, int dim) {
+        for (int i = 0; i < dim; i++) {
+            s.set(i, s.get(i) + xb2.get(i));
+        }
+    }
+
     private static void residualConnection(MemObject s, MemObject xb2, int dim) {
         for (int i = 0; i < dim; i++) {
             s.set(i, s.get(i) + xb2.get(i));
@@ -389,18 +437,18 @@ public class InferenceEngine {
      * @param size
      *            The size of the vectors.
      */
-    private static void rmsnorm(float[] o, float[] x, FloatBuffer weight, int size) {
+    private static void rmsnorm(FloatArray o, FloatArray x, FloatBuffer weight, int size) {
         // calculate sum of squares
         float ss = 0.0f;
         for (int j = 0; j < size; j++) {
-            ss += x[j] * x[j];
+            ss += x.get(j) * x.get(j);
         }
         ss /= size;
         ss += 1e-5f;
         ss = 1.0f / (float) Math.sqrt(ss);
         // normalize and scale
         for (int j = 0; j < size; j++) {
-            o[j] = weight.get(j) * (ss * x[j]);
+            o.set(j,  weight.get(j) * (ss * x.get(j)));
         }
     }
 
@@ -446,6 +494,32 @@ public class InferenceEngine {
         // normalize
         for (int i = 0; i < size; i++) {
             x[i + xOffset] /= sum;
+        }
+    }
+
+    public static float get(MemorySegment segment, int index) {
+        return segment.getAtIndex(ValueLayout.JAVA_FLOAT, index);
+    }
+
+    static void softmax(MemorySegment x, int xOffset, int size) {
+        // find max value (for numerical stability)
+        float max_val = get(x, 0 + xOffset);
+        for (int i = 1; i < size; i++) {
+            if (get(x, i + xOffset) > max_val) {
+                max_val = get(x, i + xOffset);
+            }
+        }
+        // exp and sum
+        float sum = 0.0f;
+        for (int i = 0; i < size; i++) {
+            x.setAtIndex(ValueLayout.JAVA_FLOAT, i + xOffset,  (float) Math.exp(get(x, i + xOffset) - max_val));
+            sum += get(x, i + xOffset);
+        }
+        // normalize
+        for (int i = 0; i < size; i++) {
+            //x[i + xOffset] /= sum;
+            float acc = get(x, i + xOffset);
+            x.setAtIndex(ValueLayout.JAVA_FLOAT, i + xOffset, (acc / sum));
         }
     }
 }

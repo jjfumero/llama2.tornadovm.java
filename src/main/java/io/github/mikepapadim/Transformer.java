@@ -18,7 +18,7 @@ import java.nio.file.StandardOpenOption;
  */
 public class Transformer {
 
-    public static final boolean USE_LEVEL_ZERO = true;
+    public static final boolean USE_LEVEL_ZERO = false;
     public static final boolean USE_GPU = true;
     /**
      * The hyperparameters of the architecture (the blueprint).

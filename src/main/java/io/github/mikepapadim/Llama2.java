@@ -1,6 +1,8 @@
 package io.github.mikepapadim;
 
 import java.io.IOException;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -279,6 +281,17 @@ class Llama2 {
         return n - 1; // in case of rounding errors
     }
 
+    static int sample_mult(MemorySegment probabilities, int n, float coin) {
+        float cdf = 0.0f;
+        for (int i = 0; i < n; i++) {
+            cdf += get(probabilities, i);
+            if (coin < cdf) {
+                return i;
+            }
+        }
+        return n - 1; // in case of rounding errors
+    }
+
     /**
      * Swaps two elements from a specified array.
      *
@@ -391,6 +404,56 @@ class Llama2 {
         return indices[last_idx]; // in case of rounding errors
     }
 
+    static int sample_topp(MemorySegment probabilities, int n, float topp, int[] indices, float coin) {
+        Comparator<Integer> comparator = Comparator.<Integer>comparingDouble(i -> get(probabilities, i)).reversed();
+
+        int head = 0;
+        int tail = n - 1;
+        // values smaller than (1 - topp) / (n - 1) cannot be part of the result
+        // so for efficiency we crop these out as candidates before sorting
+        float cutoff = (1.0f - topp) / (n - 1);
+        for (int i = 0; i < indices.length; i++) {
+            if (get(probabilities, i) >= cutoff) {
+                indices[head++] = i;
+            } else {
+                indices[tail--] = i;
+            }
+        }
+
+        int n0 = head;
+        // build heap O(n0)
+        for (int i = n0 / 2 - 1; i >= 0; --i) {
+            siftDown(indices, i, n0, comparator);
+        }
+
+        // truncate the list where cumulative probability of the largest k elements
+        // exceeds topp
+        // O(k lg n0)
+        float cumulative_prob = 0.0f;
+        int last_idx = 0;
+        for (int i = n0 - 1; i >= 0; i--) {
+            swap(indices, 0, i);
+            cumulative_prob += get(probabilities, indices[i]);
+            if (cumulative_prob > topp) {
+                last_idx = i;
+                break; // we've exceeded topp by including last_idx
+            }
+            siftDown(indices, 0, i - 1, comparator);
+        }
+
+        // sample from the truncated list
+        float r = coin * cumulative_prob;
+        float cdf = 0.0f;
+        for (int i = n0 - 1; i >= last_idx; i--) {
+            cdf += get(probabilities, indices[i]);
+            if (r < cdf) {
+                return indices[i];
+            }
+        }
+
+        return indices[last_idx]; // in case of rounding errors
+    }
+
     /**
      * Uses greedy argmax sampling to return the index of the token with the highest
      * probability.
@@ -409,6 +472,23 @@ class Llama2 {
             if (probabilities[i] > max_p) {
                 max_i = i;
                 max_p = probabilities[i];
+            }
+        }
+        return max_i;
+    }
+
+    public static float get(MemorySegment segment, int index) {
+        return segment.getAtIndex(ValueLayout.JAVA_FLOAT, index);
+    }
+
+    static int sample_argmax(MemorySegment probabilities, int n) {
+        // return the index that has the highest probability
+        int max_i = 0;
+        float max_p = get(probabilities, 0);
+        for (int i = 1; i < n; i++) {
+            if (get(probabilities, i) > max_p) {
+                max_i = i;
+                max_p = get(probabilities, i);
             }
         }
         return max_i;
@@ -434,6 +514,34 @@ class Llama2 {
             // apply the temperature to the logits
             for (int q = 0; q < sampler.vocab_size; q++) {
                 logits[q] /= sampler.temperature;
+            }
+            // apply softmax to the logits to get the probabilities for next token
+            InferenceEngine.softmax(logits, 0, sampler.vocab_size);
+            // flip a (float) coin (this is our source of entropy for sampling)
+            float coin = sampler.random_f32();
+            // we sample from this distribution to get the next token
+            if (sampler.topp <= 0 || sampler.topp >= 1) {
+                // simply sample from the predicted probability distribution
+                next = sample_mult(logits, sampler.vocab_size, coin);
+            } else {
+                // top-p (nucleus) sampling, clamping the least likely tokens to zero
+                next = sample_topp(logits, sampler.vocab_size, sampler.topp, sampler.probindex, coin);
+            }
+        }
+        return next;
+    }
+
+    static int sample(Sampler sampler, MemorySegment logits) {
+        int next;
+        if (sampler.temperature == 0.0f) {
+            // greedy argmax sampling: take the token with the highest probability
+            next = sample_argmax(logits, sampler.vocab_size);
+        } else {
+            // apply the temperature to the logits
+            for (int q = 0; q < sampler.vocab_size; q++) {
+                float val = logits.getAtIndex(ValueLayout.JAVA_FLOAT, q);
+                //logits[q] /= sampler.temperature;
+                logits.setAtIndex(ValueLayout.JAVA_FLOAT, q,val / sampler.temperature);
             }
             // apply softmax to the logits to get the probabilities for next token
             InferenceEngine.softmax(logits, 0, sampler.vocab_size);
@@ -491,7 +599,7 @@ class Llama2 {
         int pos = 0; // position in the sequence
         while (pos < steps) {
             // forward the transformer to get logits for the next token
-            float[] logits;
+            MemorySegment logits;
             if (Transformer.USE_LEVEL_ZERO) {
                 logits = InferenceEngine.forwardWithLevelZero(transformer, token, pos);
             } else {
@@ -633,7 +741,7 @@ class Llama2 {
             }
 
             // forward the transformer to get logits for the next token
-            float[] logits = InferenceEngine.forwardWithTornadoVM(transformer, token, pos, null);
+            MemorySegment logits = InferenceEngine.forwardWithTornadoVM(transformer, token, pos, null);
             next = sample(sampler, logits);
             pos++;
 

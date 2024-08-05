@@ -91,6 +91,31 @@ public class MatrixVectorCollection {
         });
     }
 
+    static void matmul(FloatArray xout, FloatArray x, FloatBuffer w, int n, int d) {
+        // W (d,n) @ x (n,) -> xout (d,)
+        // by far the most amount of time is spent inside this little function
+        MemorySegment wSegment = MemorySegment.ofBuffer(w);
+        IntStream.range(0, d).parallel().forEach(i -> {
+            float val = 0f;
+            int j = 0;
+            // Graal's auto-vectorization.
+            int upperBound = n & ~3;
+            float[] sum = new float[4];
+            for (; j < upperBound; j += sum.length) {
+                sum[0] += w.get(i * n + j + 0) * x.get(j + 0);
+                sum[1] += w.get(i * n + j + 1) * x.get(j + 1);
+                sum[2] += w.get(i * n + j + 2) * x.get(j + 2);
+                sum[3] += w.get(i * n + j + 3) * x.get(j + 3);
+            }
+            val += sum[0] + sum[1] + sum[2] + sum[3];
+
+            for (; j < n; j++) {
+                val += w.get(i * n + j) * x.get(j);
+            }
+            xout.set(i, val);
+        });
+    }
+
     static void matmul(float[] xout, float[] x, TensorFP32 weightTensor, int n, int d) {
         // W (d,n) @ x (n,) -> xout (d,)
         // by far the most amount of time is spent inside this little function
@@ -138,6 +163,31 @@ public class MatrixVectorCollection {
                 val += weightTensor.get(i * n + j) * x[j];
             }
             xout[i] = val;
+        });
+    }
+
+    static void matmul(FloatArray xout, FloatArray x, TensorFP32 weightTensor, int n, int d) {
+        // W (d,n) @ x (n,) -> xout (d,)
+        // by far the most amount of time is spent inside this little function
+        IntStream.range(0, d).parallel().forEach(i -> {
+            float val = 0f;
+            int j = 0;
+
+            // Graal's auto-vectorization.
+            int upperBound = n & ~3;
+            float[] sum = new float[4];
+            for (; j < upperBound; j += sum.length) {
+                sum[0] += weightTensor.get(i * n + j + 0) * x.get(j + 0);
+                sum[1] += weightTensor.get(i * n + j + 1) * x.get(j + 1);
+                sum[2] += weightTensor.get(i * n + j + 2) * x.get(j + 2);
+                sum[3] += weightTensor.get(i * n + j + 3) * x.get(j + 3);
+            }
+            val += sum[0] + sum[1] + sum[2] + sum[3];
+
+            for (; j < n; j++) {
+                val += weightTensor.get(i * n + j) * x.get(j);
+            }
+            xout.set(i, val);
         });
     }
 
@@ -235,6 +285,16 @@ public class MatrixVectorCollection {
                 val += w.get(i * n + j) * x[j];
             }
             xout[i] = val;
+        }
+    }
+
+    static void matrixVectorSimple(FloatArray xout, FloatArray x, TensorFP32 w, int n, int d) {
+        for (@Parallel int i = 0; i < d; i++) {
+            float val = 0f;
+            for (int j = 0; j < n; j++) {
+                val += w.get(i * n + j) * x.get(j);
+            }
+            xout.set(i, val);
         }
     }
 
