@@ -67,6 +67,9 @@ import java.lang.foreign.ValueLayout;
 import java.util.Random;
 import java.util.stream.IntStream;
 
+/**
+ * ComputeBundle taken from {@url https://github.com/jjfumero/corellama2.levelzero}
+ */
 public class ComputeBundle {
 
     private LevelZeroDriver driver;

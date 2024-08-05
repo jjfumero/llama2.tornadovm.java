@@ -30,9 +30,7 @@ import java.lang.foreign.ValueLayout;
 /**
  * Level Zero Implementation of the Compute Llama2.c kernels using the Level Zero JNI library.
  *
- * <p>
- *
- * </p>
+ * <p>Taken from {@url https://github.com/jjfumero/corellama2.levelzero}</p>
  *
  */
 public class Test {

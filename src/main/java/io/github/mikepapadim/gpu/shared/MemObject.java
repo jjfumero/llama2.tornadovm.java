@@ -28,6 +28,11 @@ import uk.ac.manchester.tornado.drivers.spirv.levelzero.LevelZeroBufferInteger;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
+/**
+ * Taken from {@url https://github.com/jjfumero/corellama2.levelzero}
+ * @param segment
+ * @param buffer
+ */
 public record MemObject(MemorySegment segment, LevelZeroBufferInteger buffer) {
 
     public float get(int index) {
