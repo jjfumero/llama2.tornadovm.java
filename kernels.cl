@@ -82,8 +82,10 @@ __kernel void softMaxNormalization(__global float *x, const float sum) {
 __kernel void matMul(__global float *xout, __global float *x,  __global float *w, const int n) {
     uint idx = get_global_id(0);
     float val = 0;
+    #pragma unroll 32
     for (int j = 0; j < n; j++) {
         val += w[idx * n + j] * x[j];
     }
 	xout[idx] = val;
 }
+

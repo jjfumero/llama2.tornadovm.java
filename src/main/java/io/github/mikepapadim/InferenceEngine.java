@@ -226,6 +226,7 @@ public class InferenceEngine {
             MatrixVectorCollection.matmul(s.k, s.xb, w.wk[l], dim, kv_dim);
             MatrixVectorCollection.matmul(s.v, s.xb, w.wv[l], dim, kv_dim);
 
+
             // RoPE relative positional encoding: complex-valued rotate q and k in each head
             for (int i = 0; i < dim; i += 2) {
                 int head_dim = i % head_size;
@@ -343,18 +344,6 @@ public class InferenceEngine {
         return s.logits.segment();
     }
 
-    private static float[] marshall(MemObject o, int size) {
-        float[] output = new float[size];
-        IntStream.range(0, size).forEach(i -> output[i] = o.get(i));
-        return output;
-    }
-
-    private static float[] marshall(FloatArray o, int size) {
-        float[] output = new float[size];
-        IntStream.range(0, size).forEach(i -> output[i] = o.get(i));
-        return output;
-    }
-
     /**
      * Applies the SwiGLU non-linearity to the output of the first layer in the
      * Transformer model.
@@ -366,16 +355,6 @@ public class InferenceEngine {
      * @param hb2
      *            The array representing the hidden layer output.
      */
-    private static void fusedSiluEwiseMul(int hidden_dim, float[] out, float[] hb2) {
-        for (int i = 0; i < hidden_dim; i++) {
-            float val = out[i];
-            // silu(x)=x*σ(x), where σ(x) is the logistic sigmoid
-            val *= (1.0f / (1.0f + Math.exp(-val)));
-            // elementwise multiply with w3(x)
-            out[i] = val * hb2[i];
-        }
-    }
-
     private static void fusedSiluEwiseMul(int hidden_dim, FloatArray out, FloatArray hb2) {
         for (int i = 0; i < hidden_dim; i++) {
             float val = out.get(i);
@@ -407,12 +386,6 @@ public class InferenceEngine {
      * @param dim
      *            The dimension of the vectors.
      */
-    private static void residualConnection(float[] s, float[] xb2, int dim) {
-        for (int i = 0; i < dim; i++) {
-            s[i] = s[i] + xb2[i];
-        }
-    }
-
     private static void residualConnection(FloatArray s, FloatArray xb2, int dim) {
         for (int i = 0; i < dim; i++) {
             s.set(i, s.get(i) + xb2.get(i));

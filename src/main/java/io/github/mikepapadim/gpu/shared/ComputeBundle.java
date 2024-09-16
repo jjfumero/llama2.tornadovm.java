@@ -50,6 +50,7 @@ import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeDriverHandle;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeDriverProperties;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeGroupDispatch;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeHostMemAllocDescriptor;
+import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeHostMemAllocFlags;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeInitFlag;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeKernelDescriptor;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeKernelHandle;
@@ -204,7 +205,7 @@ public class ComputeBundle {
         ZeModuleDescriptor moduleDesc = new ZeModuleDescriptor();
         ZeBuildLogHandle buildLog = new ZeBuildLogHandle();
         moduleDesc.setFormat(ZeModuleFormat.ZE_MODULE_FORMAT_IL_SPIRV);
-        moduleDesc.setBuildFlags("");
+        moduleDesc.setBuildFlags("-ze-opt-level 2");
 
         int result = context.zeModuleCreate(context.getDefaultContextPtr(), device.getDeviceHandlerPtr(), moduleDesc, module, buildLog, spirvFile);
         LevelZeroUtils.errorLog("zeModuleCreate", result);
@@ -254,8 +255,9 @@ public class ComputeBundle {
         final long bufferSize = numElements * Sizeof.FLOAT.getNumBytes();
         LevelZeroBufferInteger buffer = new LevelZeroBufferInteger();
         ZeDeviceMemAllocDescriptor deviceMemAllocDesc = new ZeDeviceMemAllocDescriptor();
-        deviceMemAllocDesc.setOrdinal(0);
         ZeHostMemAllocDescriptor hostMemAllocDesc = new ZeHostMemAllocDescriptor();
+
+        hostMemAllocDesc.setFlags(ZeHostMemAllocFlags.ZE_HOST_MEM_ALLOC_FLAG_BIAS_CACHED);
 
         // Extended memory support for large buffers
         ZeRelaxedAllocationLimitsExpDescriptor relaxedAllocationLimitsExpDescriptor = new ZeRelaxedAllocationLimitsExpDescriptor();
@@ -263,7 +265,7 @@ public class ComputeBundle {
         relaxedAllocationLimitsExpDescriptor.materialize();
         deviceMemAllocDesc.setNext(relaxedAllocationLimitsExpDescriptor);
 
-        int result = context.zeMemAllocShared(context.getContextHandle().getContextPtr()[0], deviceMemAllocDesc, hostMemAllocDesc, bufferSize, 128, device.getDeviceHandlerPtr(), buffer);
+        int result = context.zeMemAllocShared(context.getContextHandle().getContextPtr()[0], deviceMemAllocDesc, hostMemAllocDesc, bufferSize, 1, device.getDeviceHandlerPtr(), buffer);
         LevelZeroUtils.errorLog("zeMemAllocShared", result);
 
         // Allocate Panama Region using the Level Zero Buffer Pointer
@@ -277,9 +279,6 @@ public class ComputeBundle {
         // Launch the kernel on the Intel Integrated GPU
         int result = commandList.zeCommandListAppendLaunchKernel(commandList.getCommandListHandlerPtr(), kernel.getPtrZeKernelHandle(), dispatch, null, 0, null);
         LevelZeroUtils.errorLog("zeCommandListAppendLaunchKernel", result);
-
-        result = commandList.zeCommandListAppendBarrier(commandList.getCommandListHandlerPtr(), null, 0, null);
-        LevelZeroUtils.errorLog("zeCommandListAppendBarrier", result);
 
         result = commandList.zeCommandListClose(commandList.getCommandListHandlerPtr());
         LevelZeroUtils.errorLog("zeCommandListClose", result);

@@ -1,5 +1,5 @@
 
-clang -cc1 -triple spir copyData.cl -O0 -finclude-default-header -emit-llvm-bc -o file.bc
+clang -cc1 -triple spir copyData.cl -O2 -finclude-default-header -emit-llvm-bc -o file.bc
 llvm-spirv file.bc -o file.spv
 echo "Generating file.spv ....... [OK]"
 
