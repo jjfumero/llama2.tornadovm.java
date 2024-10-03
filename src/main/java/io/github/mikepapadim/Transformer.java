@@ -18,9 +18,12 @@ import java.nio.file.StandardOpenOption;
  */
 public class Transformer {
 
-    public static boolean USE_JAVA = Boolean.parseBoolean(System.getProperty("llama2.java", "FALSE"));
+    public static String VERSION = System.getProperty("llama2.version", "levelzero");
+    public static boolean USE_JAVA = false;
+    public static boolean USE_TORNADOVM = false;
     public static boolean USE_LEVEL_ZERO = true;
     public static boolean USE_GPU = true;
+    public static int DEVICE_INDEX = Integer.parseInt(System.getProperty("llama2.device", "0"));
     /**
      * The hyperparameters of the architecture (the blueprint).
      */
@@ -56,7 +59,7 @@ public class Transformer {
             if (USE_LEVEL_ZERO) {
                 ComputeBundle computeBundle = new ComputeBundle();
                 // Initialize GPU/Level Zero Platform
-                computeBundle.initializeLevelZeroPlatform("kernels.spv");
+                computeBundle.initializeLevelZeroPlatform("kernels.spv", Transformer.DEVICE_INDEX);
 
                 MemObject data = computeBundle.allocateSharedWithSegment(this.fileSize);
 

@@ -5,45 +5,42 @@
 # Print usage information
 usage() {
   echo "Usage:"
-  echo "TornadoVM Execution: $0 [-n <workgroup size> -v <-Dllama2.Vector[Float4|Float8|Float16]=true>] <.bin file>"
-  echo "Java Execution: $0 -j java <.bin file>"
+  echo -e "\tLevel Zero Execution: $0 -v LevelZero <.bin file>"
+  echo -e "\tTornadoVM Execution: $0 -v tornadovm <.bin file>"
+  echo -e "\tJava Execution: $0 -v java <.bin file>"
   exit 1
 }
 
-# Execute Llama2 with TornadoVM
+# Execute Llama2 with LevelZero/TornadoVM/Java
 execute_command() {
-  if [ -n "$java" ]; then
-        echo "Running Llama2 with pure Java"
-        tornado --jvm=" -Dllama2.java=true " -cp target/tornadovm-llama-gpu-1.0-SNAPSHOT.jar io.github.mikepapadim.Llama2 $token_file
-  elif [ -n "$workgroup_size" ]; then
-    if [ -n "$vector_mode" ]; then 
-      echo "Running Llama2 with TornadoVM: workgroup size=$workgroup_size, token file=$token_file, vector mode=$vector_mode"
-      tornado --jvm=" -Ds0.t0.local.workgroup.size=$workgroup_size $vector_mode" -cp target/tornadovm-llama-gpu-1.0-SNAPSHOT.jar io.github.mikepapadim.Llama2 $token_file
-    else 
-      echo "Running Llama2 with TornadoVM: workgroup size=$workgroup_size, token file=$token_file"
-      tornado --jvm=" -Ds0.t0.local.workgroup.size=$workgroup_size " -cp target/tornadovm-llama-gpu-1.0-SNAPSHOT.jar io.github.mikepapadim.Llama2 $token_file
-    fi
+  if [ "$version" == "java" ]; then
+        echo "Running Llama2 Singled-Threaded Java"
+        tornado --jvm=" -Dllama2.version=java " -cp target/tornadovm-llama-gpu-1.0-SNAPSHOT.jar io.github.mikepapadim.Llama2 $token_file
+  elif [ "$version" == "levelzero" ]; then 
+        echo "Running Llama2 with Level Zero JNI and Java"
+        tornado --jvm=" -Dllama2.version=levelzero -Dllama2.device=$device" -cp target/tornadovm-llama-gpu-1.0-SNAPSHOT.jar io.github.mikepapadim.Llama2 $token_file
+  elif [ "$version" == "tornadovm" ]; then 
+        echo "Running Llama2 with TornadoVM"
+        tornado --jvm=" -Dllama2.version=tornadovm -Dllama2.device=$device" -cp target/tornadovm-llama-gpu-1.0-SNAPSHOT.jar io.github.mikepapadim.Llama2 $token_file
   else
-    if [ -n "$vector_mode" ]; then
-      echo "Running Llama2 with TornadoVM: default workgroup size=64, token file=$token_file, vector mode=$vector_mode"
-      tornado --jvm=" -Ds0.t0.local.workgroup.size=64 $vector_mode" -cp target/tornadovm-llama-gpu-1.0-SNAPSHOT.jar io.github.mikepapadim.Llama2 $token_file
-    else
-      echo "Running Llama2 with TornadoVM: default workgroup size=64, token file=$token_file"
-      tornado --jvm=" -Ds0.t0.local.workgroup.size=64 " -cp target/tornadovm-llama-gpu-1.0-SNAPSHOT.jar io.github.mikepapadim.Llama2 $token_file
-    fi
+      echo "$version is invalid"
+      usage
   fi
 }
 
 # Parse command line options to identify arguments for the workgroup size, the vector type, or the java execution mode, if provided
 parse_options() {
-  while getopts ":n:v:j:" opt; do
+  device=0
+  while getopts ":d:v:j:" opt; do
     case $opt in
-      n)
-        workgroup_size="$OPTARG"
+      d)
+        device="$OPTARG"
+        echo $device
         ;;
       v)
-	      vector_mode="$OPTARG"
-	      ;;
+        version="$OPTARG"
+        echo $version
+        ;;
 	    j)
 	      java="$OPTARG"
 	      ;;

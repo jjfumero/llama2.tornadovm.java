@@ -45,16 +45,19 @@ The repository contains a `run.sh` script for running. This script takes the fol
 Additionally, the script can take an optional that enables the execution of the program in pure Java, without TornadoVM.
 
 ```bash
-// Run with just the model 
-./run.sh stories15M.bin 
-// Run with the workgroup size and the model
-./run.sh -n 128 stories15M.bin
-// Run with the workgroup size, the [VectorFloat4|VectorFloat8|VectorFloat16] types and the model
-./run.sh -n 128 -v -Dllama2.VectorFloat4=true stories15M.bin
-// Run with the [VectorFloat4|VectorFloat8|VectorFloat16] types and the model
-./run.sh -v -Dllama2.VectorFloat4=true stories15M.bin
+// Run with just the model with LevelZero
+./run.sh -v levelzero stories15M.bin 
 // Run in pure Java, without TornadoVM
-./run.sh -j java
+./run.sh -v java stories15M.bin 
+// Run with TornadoVM
+./run.sh -v tornadovm stories15M.bin 
+
+## Change device
+// Run with just the model with LevelZero and Device 1
+./run.sh -v levelzero -d 1 stories15M.bin 
+
+// Run with TornadoVM and device 1
+./run.sh -v tornadovm -d 1 stories15M.bin 
 ```
 
 ## Performance

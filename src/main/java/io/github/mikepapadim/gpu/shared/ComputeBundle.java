@@ -84,11 +84,11 @@ public class ComputeBundle {
     private LevelZeroCommandList commandList;
 
     private final boolean INFO = true;
-    private final int DEVICE_INDEX = 0;
 
     private LevelZeroModule levelZeroModule;
     private ZeModuleHandle module;
     private ZeGroupDispatch dispatcherMatMul;
+    private int deviceIndex;
 
     private void initDriver() {
         // Create the Level Zero Driver
@@ -133,7 +133,7 @@ public class ComputeBundle {
         LevelZeroUtils.errorLog("zeDeviceGet", result);
 
         // Obtain device from the list
-        device = driver.getDevice(driverHandler, DEVICE_INDEX);
+        device = driver.getDevice(driverHandler, deviceIndex);
     }
 
     private void printDeviceProperties() {
@@ -233,7 +233,8 @@ public class ComputeBundle {
         LevelZeroUtils.errorLog("zeModuleBuildLogDestroy", result);
     }
 
-    public void initializeLevelZeroPlatform(String spirvFile) {
+    public void initializeLevelZeroPlatform(String spirvFile, int deviceIndex) {
+        this.deviceIndex = deviceIndex;
         initDriver();
         createContext();
         getDeviceWithContext();

@@ -12,12 +12,11 @@ import java.util.Scanner;
 import uk.ac.manchester.tornado.api.TaskGraph;
 import uk.ac.manchester.tornado.api.TornadoExecutionPlan;
 import uk.ac.manchester.tornado.api.enums.DataTransferMode;
-import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 
 /**
  * This class provides an implementation of the Llama-2 neural network model in
- * {@link https://github.com/mukel/llama2.java}, extended to offload the
- * computational heavy parts on heterogeneous devices using TornadoVM. It
+ * {@link <a href="https://github.com/mukel/llama2.java">https://github.com/mukel/llama2.java</a>},
+ * extended to offload the computational heavy parts on heterogeneous devices using TornadoVM. It
  * includes methods for generating text, tokenization, and sampling.
  * Additionally, it offers four different execution modes, one using the Vector
  * API, and three TornadoVM modes, with Vector4, Vector8 and Vector16 types.
@@ -589,7 +588,7 @@ class Llama2 {
             System.exit(1);
         }
         TornadoExecutionPlan tornadoExecutionPlan = null;
-        if (!Transformer.USE_LEVEL_ZERO) {
+        if (Transformer.USE_TORNADOVM) {
              tornadoExecutionPlan = createTornadoExecutionPlan(transformer);
         }
 
@@ -604,8 +603,10 @@ class Llama2 {
                 logits = InferenceEngine.forwardWithJava(transformer, token, pos);
             } else if (Transformer.USE_LEVEL_ZERO) {
                 logits = InferenceEngine.forwardWithLevelZero(transformer, token, pos);
-            } else {
+            } else if (Transformer.USE_TORNADOVM) {
                 logits = InferenceEngine.forwardWithTornadoVM(transformer, token, pos, tornadoExecutionPlan);
+            } else {
+                throw new RuntimeException("Error");
             }
 
             // Advance the state machine
@@ -780,7 +781,7 @@ class Llama2 {
 
     public static void main(String[] args) throws IOException {
         // default parameters
-        String checkpoint_path = null; // e.g. out/model.bin
+        String modelFileBin = null; // e.g. out/model.bin
         String tokenizer_path = "tokenizer.bin";
         float temperature = 1.0f; // 0.0 = greedy deterministic. 1.0 = original. don't set higher
         float topp = 0.9f; // top-p in nucleus sampling. 1.0 = off. 0.9 works well, but slower
@@ -792,19 +793,32 @@ class Llama2 {
 
         // parsing of arguments to override the defaults above from the command
         if (args.length >= 1) {
-            checkpoint_path = args[0];
+            modelFileBin = args[0];
         } else {
             error_usage();
         }
 
-        if (Transformer.USE_JAVA) {
-            System.out.println("Running with pure Java");
-            Transformer.USE_LEVEL_ZERO = false;
-            Transformer.USE_GPU = false;
-        } else if (Transformer.USE_LEVEL_ZERO) {
-            System.out.println("USING LEVEL ZERO");
-            if (Transformer.USE_GPU)
-                System.out.println("USING LevelZero on the iGPU");
+        String version = Transformer.VERSION;
+        switch (version) {
+            case "java" -> {
+                System.out.println("Running with pure Java");
+                Transformer.USE_JAVA = true;
+                Transformer.USE_LEVEL_ZERO = false;
+                Transformer.USE_TORNADOVM = false;
+            }
+            case "levelzero" -> {
+                Transformer.USE_LEVEL_ZERO = true;
+                Transformer.USE_TORNADOVM = false;
+                Transformer.USE_JAVA = false;
+                if (Transformer.USE_GPU)
+                    System.out.println("USING LevelZero on the GPU");
+            }
+            case "tornadovm" -> {
+                Transformer.USE_TORNADOVM = true;
+                Transformer.USE_LEVEL_ZERO = false;
+                Transformer.USE_JAVA = false;
+            }
+            default -> error_usage();
         }
 
         for (int i = 1; i < args.length; i += 2) {
@@ -847,7 +861,7 @@ class Llama2 {
         }
 
         // build the Transformer via the model .bin file
-        Transformer transformer = new Transformer(checkpoint_path);
+        Transformer transformer = new Transformer(modelFileBin);
         if (steps == 0 || steps > transformer.config.seq_len) {
             steps = transformer.config.seq_len; // ovrerride to ~max length
         }

@@ -43,7 +43,7 @@ public class Test {
     public void testingKernel() {
 
         ComputeBundle computeBundle = new ComputeBundle();
-        computeBundle.initializeLevelZeroPlatform("file.spv");
+        computeBundle.initializeLevelZeroPlatform("file.spv", 0);
 
         LevelZeroKernel kernel = computeBundle.createKernel("copyData");
 
@@ -123,7 +123,7 @@ public class Test {
     private static void computeLlama2CoreMethods() {
         Test coreLLama2LZ = new Test();
         ComputeBundle computeBundle = new ComputeBundle();
-        computeBundle.initializeLevelZeroPlatform("kernels.spv");
+        computeBundle.initializeLevelZeroPlatform("kernels.spv", 0);
 
         // Data Initialization
         int numElements = ELEMENTS;
