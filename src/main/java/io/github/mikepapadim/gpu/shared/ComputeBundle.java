@@ -45,6 +45,7 @@ import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeCommandQueueHandle;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeCommandQueueMode;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeContextDescriptor;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeDeviceMemAllocDescriptor;
+import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeDeviceProperties;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeDevicesHandle;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeDriverHandle;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeDriverProperties;
@@ -149,6 +150,12 @@ public class ComputeBundle {
         LevelZeroUtils.errorLog("zeDriverGetApiVersion", result);
 
         System.out.println("Level Zero API Version: " + apiVersion);
+
+        LevelZeroDevice device = driver.getDevice(driverHandler, 0);
+        ZeDeviceProperties deviceProperties = new ZeDeviceProperties();
+        result = device.zeDeviceGetProperties(device.getDeviceHandlerPtr(), deviceProperties);
+        LevelZeroUtils.errorLog("zeDeviceGetProperties", result);
+        System.out.println(deviceProperties);
     }
 
     private void createCommandQueue() {
