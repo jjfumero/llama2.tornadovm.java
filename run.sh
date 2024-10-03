@@ -14,7 +14,7 @@ usage() {
 execute_command() {
   if [ -n "$java" ]; then
         echo "Running Llama2 with pure Java"
-        tornado --jvm=" -Dllama2.Java=true " -cp target/tornadovm-llama-gpu-1.0-SNAPSHOT.jar io.github.mikepapadim.Llama2 $token_file
+        tornado --jvm=" -Dllama2.java=true " -cp target/tornadovm-llama-gpu-1.0-SNAPSHOT.jar io.github.mikepapadim.Llama2 $token_file
   elif [ -n "$workgroup_size" ]; then
     if [ -n "$vector_mode" ]; then 
       echo "Running Llama2 with TornadoVM: workgroup size=$workgroup_size, token file=$token_file, vector mode=$vector_mode"

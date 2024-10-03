@@ -18,8 +18,9 @@ import java.nio.file.StandardOpenOption;
  */
 public class Transformer {
 
-    public static final boolean USE_LEVEL_ZERO = true;
-    public static final boolean USE_GPU = true;
+    public static boolean USE_JAVA = Boolean.parseBoolean(System.getProperty("llama2.java", "FALSE"));
+    public static boolean USE_LEVEL_ZERO = true;
+    public static boolean USE_GPU = true;
     /**
      * The hyperparameters of the architecture (the blueprint).
      */
@@ -50,7 +51,6 @@ public class Transformer {
      */
     public Transformer(String checkpointPath) throws IOException {
         try (FileChannel fileChannel = FileChannel.open(Paths.get(checkpointPath), StandardOpenOption.READ)) {
-
 
             this.fileSize = fileChannel.size();
             if (USE_LEVEL_ZERO) {

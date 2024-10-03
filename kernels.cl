@@ -79,13 +79,42 @@ __kernel void softMaxNormalization(__global float *x, const float sum) {
 // ===============================================================
 // Kernels: matMul
 // ===============================================================
-__kernel void matMul(__global float *xout, __global float *x,  __global float *w, const int n) {
+__kernel void matMul(__global float *xout, __global const float *x,  __global const float *w, const int n) {
     uint idx = get_global_id(0);
     float val = 0;
-    #pragma unroll 32
+    #pragma unroll 8
     for (int j = 0; j < n; j++) {
+        // val = fma(w[idx * n + j], x[j], val);
         val += w[idx * n + j] * x[j];
     }
 	xout[idx] = val;
 }
 
+// Second approach using OpenCL local memory
+__kernel void matMulLocal(__global float *xout,
+                           __global const float *x,
+                           __global const float* w,
+                           __local float *lvector,
+                           const int n) {
+    // Get the row index for this thread
+    int idx = get_global_id(0);
+
+    // Load vector into local memory to reduce global memory access
+    int localIdx = get_local_id(0);
+    int localSize = get_local_size(0);
+
+    // Load parts of the vector into local memory in chunks
+    for (int i = localIdx; i < n; i += localSize) {
+        lvector[i] = x[i];
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    // Compute the matrix-vector multiplication
+    float acc = 0.0f;
+    for (int j = 0; j < n; j++) {
+        acc += w[idx * n + j] * lvector[j];
+    }
+
+    // store final result
+    xout[idx] = acc;
+}

@@ -483,6 +483,10 @@ public class ComputeBundle {
         result = levelZeroKernel.zeKernelSetArgumentValue(kernel.getPtrZeKernelHandle(), 0, Sizeof.POINTER.getNumBytes(), dXout);
         result |= levelZeroKernel.zeKernelSetArgumentValue(kernel.getPtrZeKernelHandle(), 1, Sizeof.POINTER.getNumBytes(), dX);
         result |= levelZeroKernel.zeKernelSetArgumentValue(kernel.getPtrZeKernelHandle(), 2, Sizeof.POINTER.getNumBytes(), dW);
+
+//        final int sharedMemorySize = 128 * Sizeof.FLOAT.getNumBytes();
+//        result |= levelZeroKernel.zeKernelSetArgumentValue(kernel.getPtrZeKernelHandle(), 3, sharedMemorySize, null);
+
         result |= levelZeroKernel.zeKernelSetArgumentValuePrimitive(kernel.getPtrZeKernelHandle(), 3, Sizeof.INT.getNumBytes(), Pointer.to(numElements));
         LevelZeroUtils.errorLog("zeKernelSetArgumentValue: ", result);
         

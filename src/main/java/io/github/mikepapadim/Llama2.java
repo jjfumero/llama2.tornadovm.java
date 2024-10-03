@@ -588,7 +588,7 @@ class Llama2 {
             System.err.println("something is wrong, expected at least 1 prompt token");
             System.exit(1);
         }
-        TornadoExecutionPlan tornadoExecutionPlan;
+        TornadoExecutionPlan tornadoExecutionPlan = null;
         if (!Transformer.USE_LEVEL_ZERO) {
              tornadoExecutionPlan = createTornadoExecutionPlan(transformer);
         }
@@ -600,7 +600,9 @@ class Llama2 {
         while (pos < steps) {
             // forward the transformer to get logits for the next token
             MemorySegment logits;
-            if (Transformer.USE_LEVEL_ZERO) {
+            if (Transformer.USE_JAVA) {
+                logits = InferenceEngine.forwardWithJava(transformer, token, pos);
+            } else if (Transformer.USE_LEVEL_ZERO) {
                 logits = InferenceEngine.forwardWithLevelZero(transformer, token, pos);
             } else {
                 logits = InferenceEngine.forwardWithTornadoVM(transformer, token, pos, tornadoExecutionPlan);
@@ -795,10 +797,14 @@ class Llama2 {
             error_usage();
         }
 
-        if (Transformer.USE_LEVEL_ZERO) {
+        if (Transformer.USE_JAVA) {
+            System.out.println("Running with pure Java");
+            Transformer.USE_LEVEL_ZERO = false;
+            Transformer.USE_GPU = false;
+        } else if (Transformer.USE_LEVEL_ZERO) {
             System.out.println("USING LEVEL ZERO");
             if (Transformer.USE_GPU)
-                System.out.println("USING iGPU");
+                System.out.println("USING LevelZero on the iGPU");
         }
 
         for (int i = 1; i < args.length; i += 2) {
