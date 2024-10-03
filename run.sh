@@ -35,11 +35,9 @@ parse_options() {
     case $opt in
       d)
         device="$OPTARG"
-        echo $device
         ;;
       v)
         version="$OPTARG"
-        echo $version
         ;;
 	    j)
 	      java="$OPTARG"
