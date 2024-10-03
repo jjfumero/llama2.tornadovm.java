@@ -1,5 +1,6 @@
 .idea/
 file.spv
+file.bc
 log_*/
 setvars.sh
 stories110M.bin
