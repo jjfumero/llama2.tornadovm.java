@@ -84,6 +84,7 @@ public class ComputeBundle {
     private LevelZeroCommandList commandList;
 
     private final boolean INFO = true;
+    private final int DEVICE_INDEX = 0;
 
     private LevelZeroModule levelZeroModule;
     private ZeModuleHandle module;
@@ -132,7 +133,7 @@ public class ComputeBundle {
         LevelZeroUtils.errorLog("zeDeviceGet", result);
 
         // Obtain device from the list
-        device = driver.getDevice(driverHandler, 0);
+        device = driver.getDevice(driverHandler, DEVICE_INDEX);
     }
 
     private void printDeviceProperties() {
@@ -151,7 +152,6 @@ public class ComputeBundle {
 
         System.out.println("Level Zero API Version: " + apiVersion);
 
-        LevelZeroDevice device = driver.getDevice(driverHandler, 0);
         ZeDeviceProperties deviceProperties = new ZeDeviceProperties();
         result = device.zeDeviceGetProperties(device.getDeviceHandlerPtr(), deviceProperties);
         LevelZeroUtils.errorLog("zeDeviceGetProperties", result);
