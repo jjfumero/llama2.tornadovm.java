@@ -166,6 +166,7 @@ public class InferenceEngine {
         TornadoDevice device = TornadoExecutionPlan.getDevice(0, deviceIndex);
         executionPlan //
                 .withDevice(device) //
+                //.withThreadInfo() //
                 .execute(); //
 
         return s.logits.getSegment();
