@@ -1,24 +1,40 @@
 # An extension of the Llama2.java implementation, accelerated with GPUs by using TornadoVM and Level Zero JNI (GPUs)
 
-<img src="https://github.com/mikepapadim/llama2.tornadovm.java/assets/8652854/4493fe14-7427-4532-91fa-7299cd96034b" width="30%">
+This repo extends https://github.com/mikepapadim/llama2.tornadovm.java and [llama2.java](https://github.com/mukel/llama2.java) with Level Zero JNI Support to run on GPUs.
 
-This repository provides an implementation of [llama2.java](https://github.com/mukel/llama2.java), extended to use the Vector API and [TornadoVM](https://github.com/beehive-lab/TornadoVM) for acceleration.
+This project has been checked with Intel HD Graphics (integrated GPUs) and Intel ARC (discrete GPUs).
+
+
+<img src="https://github.com/mikepapadim/llama2.tornadovm.java/assets/8652854/4493fe14-7427-4532-91fa-7299cd96034b" width="30%">
 
 ## Prerequisites
 * **JDK 21+**: This is essential as the project uses the [Project Panama](https://openjdk.org/projects/panama/) for native memory allocation. 
 * **TornadoVM**: Detailed installation instructions can be found [here](https://tornadovm.readthedocs.io/en/latest/installation.html).  
 
 ## Build
-The `set_paths.sh` file provides a template with all the paths that need to be set up for the compilation and execution.
-From this template, the paths that need to be set are: 
-* **$JAVA_HOME**, with the path to JDK 21
-* **$TORNADO_ROOT**, with the path to the TornadoVM installation  
+
+First, build TornadoVM with the Level Zero Backend:
+
+```bash
+cd tornadovm
+./bin/tornadovm-installer --jdk jdk21 --backend=spirv 
+```
+
+Then, copy the `setvars.sh` into the local folder for the llama2.tornadovm and level zero
+
+```bash
+cp <tornadovm>/setvars.sh . 
+source setvars.sh 
+```
+
+And finally, build this project with maven:
 
 ```bash
 mvn clean package
 ```
 
 ## Execution
+
 ### Token files
 Just like the original Java implementation, the program requires a `tokenizer.bin` file and the input models available in the TinyLlamas. 
 ```bash
