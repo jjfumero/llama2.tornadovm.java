@@ -24,6 +24,7 @@
 package io.github.mikepapadim.gpu.shared;
 
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.LevelZeroBufferInteger;
+import uk.ac.manchester.tornado.drivers.spirv.levelzero.LevelZeroByteBuffer;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.LevelZeroCommandList;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.LevelZeroCommandQueue;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.LevelZeroContext;
@@ -49,12 +50,19 @@ import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeDeviceProperties;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeDevicesHandle;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeDriverHandle;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeDriverProperties;
+import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeEventDescriptor;
+import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeEventHandle;
+import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeEventPoolDescriptor;
+import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeEventPoolFlags;
+import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeEventPoolHandle;
+import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeEventScopeFlags;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeGroupDispatch;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeHostMemAllocDescriptor;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeHostMemAllocFlags;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeInitFlag;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeKernelDescriptor;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeKernelHandle;
+import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeKernelTimeStampResult;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeModuleDescriptor;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeModuleFormat;
 import uk.ac.manchester.tornado.drivers.spirv.levelzero.ZeModuleHandle;
@@ -74,6 +82,7 @@ import java.util.stream.IntStream;
  */
 public class ComputeBundle {
 
+    private static final boolean PROFILE_ON = false;
     private LevelZeroDriver driver;
     private LevelZeroDevice device;
     private ZeDriverHandle driverHandler;
@@ -87,8 +96,9 @@ public class ComputeBundle {
 
     private LevelZeroModule levelZeroModule;
     private ZeModuleHandle module;
-    private ZeGroupDispatch dispatcherMatMul;
     private int deviceIndex;
+    private DispacherMeta dispatcherMeta;
+    private LevelZeroByteBuffer timeStampBuffer;
 
     private void initDriver() {
         // Create the Level Zero Driver
@@ -279,14 +289,26 @@ public class ComputeBundle {
         // Allocate Panama Region using the Level Zero Buffer Pointer
         MemorySegment segment = MemorySegment.ofAddress(buffer.getPtrBuffer()).reinterpret(bufferSize);
 
+
+        // timeBuffer (timestamps)
+        timeStampBuffer = new LevelZeroByteBuffer();
+        result = context.zeMemAllocHost(context.getDefaultContextPtr(), hostMemAllocDesc, Sizeof.ze_kernel_timestamp_result_t.getNumBytes(), 1, timeStampBuffer);
+        LevelZeroUtils.errorLog("zeMemAllocHost", result);
+
+
         return new MemObject(segment, buffer);
     }
 
-    private void launchAndSync(LevelZeroKernel levelZeroKernel, ZeGroupDispatch dispatch) {
+    private void launchAndSync(LevelZeroKernel levelZeroKernel, DispacherMeta dispatch) {
         ZeKernelHandle kernel = levelZeroKernel.getKernelHandle();
         // Launch the kernel on the Intel Integrated GPU
-        int result = commandList.zeCommandListAppendLaunchKernel(commandList.getCommandListHandlerPtr(), kernel.getPtrZeKernelHandle(), dispatch, null, 0, null);
+        int result = commandList.zeCommandListAppendLaunchKernel(commandList.getCommandListHandlerPtr(), kernel.getPtrZeKernelHandle(), dispatch.dispatch, dispatch.kernelEventTimer, 0, null);
         LevelZeroUtils.errorLog("zeCommandListAppendLaunchKernel", result);
+
+        if (dispatch.kernelEventTimer != null) {
+            result = commandList.zeCommandListAppendQueryKernelTimestamps(commandList.getCommandListHandlerPtr(), 1, dispatch.kernelEventTimer, timeStampBuffer, null, null, 0, null);
+            LevelZeroUtils.errorLog("zeCommandListAppendQueryKernelTimestamps", result);
+        }
 
         result = commandList.zeCommandListClose(commandList.getCommandListHandlerPtr());
         LevelZeroUtils.errorLog("zeCommandListClose", result);
@@ -299,6 +321,18 @@ public class ComputeBundle {
 
         result = commandList.zeCommandListReset(commandList.getCommandListHandlerPtr());
         LevelZeroUtils.errorLog("zeCommandListReset", result);
+
+        if (dispatch.kernelEventTimer != null) {
+            ZeDeviceProperties deviceProperties = new ZeDeviceProperties();
+            result = device.zeDeviceGetProperties(device.getDeviceHandlerPtr(), deviceProperties);
+            LevelZeroUtils.errorLog("zeDeviceGetProperties", result);
+            System.out.println(deviceProperties);
+
+            ZeKernelTimeStampResult resultKernel = new ZeKernelTimeStampResult(deviceProperties);
+
+            resultKernel.resolve(timeStampBuffer);
+            resultKernel.printTimers();
+        }
     }
 
     public void runKernelTesting(LevelZeroKernel levelZeroKernel, int numElements, LevelZeroBufferInteger bufferA, LevelZeroBufferInteger bufferB) {
@@ -324,7 +358,7 @@ public class ComputeBundle {
         dispatch.setGroupCountY(1);
         dispatch.setGroupCountZ(1);
 
-        launchAndSync(levelZeroKernel, dispatch);
+        launchAndSync(levelZeroKernel, new DispacherMeta(dispatch, null, null));
     }
 
     public void runRMSNorm1(LevelZeroKernel levelZeroKernel, int numElements, final int groupSize, LevelZeroBufferInteger dOutput, LevelZeroBufferInteger dX) {
@@ -352,7 +386,7 @@ public class ComputeBundle {
         dispatch.setGroupCountY(1);
         dispatch.setGroupCountZ(1);
 
-        launchAndSync(levelZeroKernel, dispatch);
+        launchAndSync(levelZeroKernel, new DispacherMeta(dispatch, null, null));
     }
 
     public void runRMSNorm2(LevelZeroKernel levelZeroKernel, int numElements, final float ss, LevelZeroBufferInteger... parameters) {
@@ -380,7 +414,7 @@ public class ComputeBundle {
         dispatch.setGroupCountY(1);
         dispatch.setGroupCountZ(1);
 
-        launchAndSync(levelZeroKernel, dispatch);
+        launchAndSync(levelZeroKernel, new DispacherMeta(dispatch, null, null));
     }
 
     public void runSoftMax1(LevelZeroKernel levelZeroKernel, int numElements, final int groupSize, LevelZeroBufferInteger dOutput, LevelZeroBufferInteger dX) {
@@ -407,7 +441,7 @@ public class ComputeBundle {
         dispatch.setGroupCountY(1);
         dispatch.setGroupCountZ(1);
 
-        launchAndSync(levelZeroKernel, dispatch);
+        launchAndSync(levelZeroKernel, new DispacherMeta(dispatch, null, null));
     }
 
     public void runSoftMax2(LevelZeroKernel levelZeroKernel, int numElements, final int groupSize, LevelZeroBufferInteger dOutput, LevelZeroBufferInteger dX, float maxValue) {
@@ -438,7 +472,7 @@ public class ComputeBundle {
         dispatch.setGroupCountY(1);
         dispatch.setGroupCountZ(1);
 
-        launchAndSync(levelZeroKernel, dispatch);
+        launchAndSync(levelZeroKernel, new DispacherMeta(dispatch, null, null));
     }
 
     public void runSoftMax3(LevelZeroKernel levelZeroKernel, int numElements, LevelZeroBufferInteger dX, float valSum) {
@@ -466,14 +500,14 @@ public class ComputeBundle {
         dispatch.setGroupCountY(1);
         dispatch.setGroupCountZ(1);
 
+        launchAndSync(levelZeroKernel, new DispacherMeta(dispatch, null, null));
+    }
+
+    public void dispatchMatMul(LevelZeroKernel levelZeroKernel, DispacherMeta dispatch) {
         launchAndSync(levelZeroKernel, dispatch);
     }
 
-    public void dispatchMatMul(LevelZeroKernel levelZeroKernel, ZeGroupDispatch dispatch) {
-        launchAndSync(levelZeroKernel, dispatch);
-    }
-
-    public ZeGroupDispatch runMatMul(LevelZeroKernel levelZeroKernel, LevelZeroBufferInteger dXout, LevelZeroBufferInteger dX, LevelZeroBufferInteger dW, int numElements, int numThreads) {
+    public DispacherMeta runMatMul(LevelZeroKernel levelZeroKernel, LevelZeroBufferInteger dXout, LevelZeroBufferInteger dX, LevelZeroBufferInteger dW, int numElements, int numThreads) {
 
         int[] groupSizeX = new int[] { numThreads };
         int[] groupSizeY = new int[] { 1 };
@@ -504,8 +538,40 @@ public class ComputeBundle {
         dispatch.setGroupCountY(1);
         dispatch.setGroupCountZ(1);
 
-        launchAndSync(levelZeroKernel, dispatch);
-        return dispatch;
+        ZeEventPoolHandle eventPoolHandle = null;
+        ZeEventHandle kernelEventTimer = null;
+        if (PROFILE_ON) {
+            eventPoolHandle = new ZeEventPoolHandle();
+            kernelEventTimer = new ZeEventHandle();
+            createEventPoolAndEvents(context, device, eventPoolHandle, ZeEventPoolFlags.ZE_EVENT_POOL_FLAG_KERNEL_TIMESTAMP, 1, kernelEventTimer);
+        }
+
+        DispacherMeta meta = new DispacherMeta(dispatch, kernelEventTimer, eventPoolHandle);
+
+        launchAndSync(levelZeroKernel, meta);
+
+        return meta;
+    }
+
+    public record DispacherMeta (ZeGroupDispatch dispatch, ZeEventHandle kernelEventTimer, ZeEventPoolHandle eventPoolHandle) {}
+
+    private static void createEventPoolAndEvents(LevelZeroContext context, LevelZeroDevice device, ZeEventPoolHandle eventPoolHandle, int poolEventFlags, int poolSize, ZeEventHandle kernelEvent) {
+
+        ZeEventPoolDescriptor eventPoolDescription = new ZeEventPoolDescriptor();
+
+        eventPoolDescription.setCount(poolSize);
+        eventPoolDescription.setFlags(poolEventFlags);
+
+        int result = context.zeEventPoolCreate(context.getDefaultContextPtr(), eventPoolDescription, 1, device.getDeviceHandlerPtr(), eventPoolHandle);
+        LevelZeroUtils.errorLog("zeEventPoolCreate", result);
+
+        // Create Kernel Event
+        ZeEventDescriptor eventDescription = new ZeEventDescriptor();
+        eventDescription.setIndex(0);
+        eventDescription.setSignal(ZeEventScopeFlags.ZE_EVENT_SCOPE_FLAG_HOST);
+        eventDescription.setWait(ZeEventScopeFlags.ZE_EVENT_SCOPE_FLAG_HOST);
+        result = context.zeEventCreate(eventPoolHandle, eventDescription, kernelEvent);
+        LevelZeroUtils.errorLog("zeEventCreate", result);
     }
 
     public void print(MemorySegment segment) {
@@ -551,15 +617,15 @@ public class ComputeBundle {
         return true;
     }
 
-    public void setDispatchMatMul(ZeGroupDispatch dispatcher) {
-        this.dispatcherMatMul = dispatcher;
+    public void setDispatchMatMul(DispacherMeta dispatcher) {
+        this.dispatcherMeta = dispatcher;
     }
 
-    public ZeGroupDispatch getMatMulDispatcher() {
-        return this.dispatcherMatMul;
+    public DispacherMeta getMatMulDispatcher() {
+        return this.dispatcherMeta;
     }
 
     public boolean isThreadConfigurationDone() {
-        return this.dispatcherMatMul != null;
+        return this.dispatcherMeta.dispatch != null;
     }
 }

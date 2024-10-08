@@ -215,11 +215,11 @@ public class MatrixVectorCollection {
 
     static void matMulOnGPU(LevelZeroKernel kernel, ComputeBundle computeBundle, MemObject xout, MemObject x, MemObject w, int n, int numThreads) {
         if (computeBundle.getMatMulDispatcher() == null) {
-            ZeGroupDispatch threadDispatcher = computeBundle.runMatMul(kernel, xout.buffer(), x.buffer(), w.buffer(), n, numThreads);
-            computeBundle.setDispatchMatMul(threadDispatcher);
+            ComputeBundle.DispacherMeta dispacherMeta = computeBundle.runMatMul(kernel, xout.buffer(), x.buffer(), w.buffer(), n, numThreads);
+            computeBundle.setDispatchMatMul(dispacherMeta);
         } else {
-            ZeGroupDispatch matMulDispatcher = computeBundle.getMatMulDispatcher();
-            computeBundle.dispatchMatMul(kernel, matMulDispatcher);
+            ComputeBundle.DispacherMeta dispatcher = computeBundle.getMatMulDispatcher();
+            computeBundle.dispatchMatMul(kernel, dispatcher);
         }
     }
 
